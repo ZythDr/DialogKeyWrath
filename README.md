@@ -1,22 +1,22 @@
 # DialogKeyWrath (WotLK 3.3.5a)
 
-Keyboard dialog navigation for WotLK 3.3.5. Quickly talk to NPCs, accept/turn-in quests, and handle popups without a single mouse click!
+### Keyboard dialog navigation for WotLK 3.3.5. Quickly talk to NPCs, accept/turn-in quests, and handle popups without a single mouse click!
 
 ## Features
 
-- Fast selection with number keys
-  - Press 1–9/0 to choose visible options in Gossip and Quest Greeting lists
+- **Fast selection with number keys**
+  - Press 1–9/0 to choose visible options in Gossip and Quest frames
   - Numbers are shown next to options and quest rewards for easy targeting
-- Spacebar to advance
+- **Spacebar to advance**
   - Space targets the “most sensible” button (accept/complete/continue) or your current list item
   - Optional: use Space to trigger Postal’s “Open All” (when there's unread mail *and* Postal is installed)
-- Scroll wheel selection (optional)
+- **Scroll wheel selection (optional)**
   - Move the Space target up/down the current list with your mouse wheel
-- Popup control rules
-  - Create simple rules to auto-handle confirmation popups (ignore, click Button1, or click Button2)
+- **Popup control rules**
+  - Create simple rules to auto-handle confirmation popups (ignore or click Button1-Button4)
   - Keep interruptions under control while questing
-- Lightweight and native look
-  - Uses Blizzard’s highlights and fonts; minimal overhead
+- **Lightweight and native look**
+  - Uses Blizzard’s highlights and fonts; minimal overhead 
 
 ## Commands
 
@@ -51,6 +51,4 @@ Perfect for auto-dismissing familiar confirmation popups or streamlining routine
 
 - Original DialogKey addon by TonyRaccoon:  https://github.com/TonyRaccoon/wow-dialogkey
 - DialogKeyWrath variant authored by ZythDr, adapted for WotLK 3.3.5a with added features and quality-of-life options.
-
----
-Enjoy smoother questing and faster NPC interactions!
+- ChatGPT for helping me create this code.
