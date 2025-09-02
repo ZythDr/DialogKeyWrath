@@ -4,7 +4,7 @@
 
 ## Features
 
-- **Fast selection with number keys**
+- **Fast selection with number keys** <img height="390" float="right" align="right" src="https://github.com/user-attachments/assets/5a63daa2-c67f-4e48-b6ca-f0b4612fd467" />
   - Press 1–9/0 to choose visible options in Gossip and Quest frames
   - Numbers are shown next to options and quest rewards for easy targeting
 - **Spacebar to advance**
@@ -23,9 +23,10 @@
 - Open options:  
   `/dkw`
 
-## Settings 
+## Settings
 
-- Allowing NumPad keys to also count as number inputs <img width="276" height="214" float="right" align="right" alt="Ascension_Z1mLxcU1gl" src="https://github.com/user-attachments/assets/0ecf91ef-98cc-42bd-8c1c-ca41f282362f" />
+
+- Allowing NumPad keys to also count as number inputs 
 - Allowing scroll wheel to move selection in dialog lists
 - Show/hide numbers on dialog & quest lists
 - Require number input (Popups) (Spacebar interactions disabled until a choice is made)
