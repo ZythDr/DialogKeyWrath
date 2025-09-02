@@ -1,6 +1,6 @@
 # DialogKeyWrath (WotLK 3.3.5a)
 
-### Keyboard dialog navigation for WotLK 3.3.5. Quickly talk to NPCs, accept/turn-in quests, and handle popups without a single mouse click!
+### Keyboard dialog navigation addon. Quickly talk to NPCs, accept/turn-in quests, and handle popups without a single mouse click!
 
 ## Features
 
@@ -40,7 +40,12 @@ Create your own popup rules to match by text or frame and assign any of the foll
 - Click Button3 (used in certain frames, added for flexibility)
 - Click Button4 (used in certain frames, added for flexibility)
 
-Perfect for auto-dismissing familiar confirmation popups or streamlining routine actions.
+Perfect for auto-dismissing familiar confirmation popups or streamlining routine actions.  
+
+- There are 3 pre-configured rules which cannot be deleted, but they can be disabled:
+  - **Disable Addons Popup:** pre-configured to click "Cancel" on the "your addons are experiencing errors" popup, where clicking accept reloads UI with 0 addons loaded.
+  - **Destroy Items:**
+  - **Destroy Quest Items:**
 
 ## Compatibility
 
@@ -50,5 +55,5 @@ Perfect for auto-dismissing familiar confirmation popups or streamlining routine
 ## Credits
 
 - Original DialogKey addon by TonyRaccoon:  https://github.com/TonyRaccoon/wow-dialogkey
-- DialogKeyWrath variant authored by ZythDr, adapted for WotLK 3.3.5a with added features and quality-of-life options.
-- ChatGPT for helping me create this code.
+- DialogKeyWrath by ZythDr, adapted for WotLK 3.3.5a with added features and quality-of-life options
+- ChatGPT for helping me create this addon
