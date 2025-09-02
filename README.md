@@ -20,7 +20,7 @@
 
 ## Commands
 
-- Open options (full version):  
+- Open options:  
   `/dkw`
 
 ## Settings
