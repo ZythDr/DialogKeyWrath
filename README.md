@@ -23,12 +23,12 @@
 - Open options:  
   `/dkw`
 
-## Settings
+## Settings 
 
-- Allowing NumPad keys to also count as number inputs
+- Allowing NumPad keys to also count as number inputs <img width="276" height="214" float="right" align="right" alt="Ascension_Z1mLxcU1gl" src="https://github.com/user-attachments/assets/0ecf91ef-98cc-42bd-8c1c-ca41f282362f" />
 - Allowing scroll wheel to move selection in dialog lists
 - Show/hide numbers on dialog & quest lists
-- Require number input for popup frames (Spacebar interactions disabled until a choice is made)
+- Require number input (Popups) (Spacebar interactions disabled until a choice is made)
 - Spacebar interacting with Postal's “Open All” button (Requires Postal, set to only work when there's *unread* mail)
 
 ## Rules (simple and flexible)
@@ -42,10 +42,14 @@ Create your own popup rules to match by text or frame and assign any of the foll
 
 Perfect for auto-dismissing familiar confirmation popups or streamlining routine actions.  
 
+
+https://github.com/user-attachments/assets/0fe1b944-bf04-4b09-ae9b-45a3a41f68b6
+
+
 - There are 3 pre-configured rules which cannot be deleted, but they can be disabled:
   - **Disable Addons Popup:** pre-configured to click "Cancel" on the "your addons are experiencing errors" popup, where clicking accept reloads UI with 0 addons loaded.
-  - **Destroy Items:**
-  - **Destroy Quest Items:**
+  - **Destroy Items:** pre-configured to ignore the popup, this is done to make sure no accidental item deletion occurs.
+  - **Destroy Quest Items:** pre-configured to ignore the popup, this is done to make sure no accidental quest item deletion occurs.
 
 ## Compatibility
 
