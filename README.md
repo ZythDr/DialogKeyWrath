@@ -4,7 +4,7 @@
 
 ## Features
 
-- **Fast selection with number keys** <img height="390" float="right" align="right" src="https://github.com/user-attachments/assets/5a63daa2-c67f-4e48-b6ca-f0b4612fd467" />
+- **Fast selection with number keys** <img height="400" float="right" align="right" src="https://github.com/user-attachments/assets/5a63daa2-c67f-4e48-b6ca-f0b4612fd467" />
   - Press 1–9/0 to choose visible options in Gossip and Quest frames
   - Numbers are shown next to options and quest rewards for easy targeting
 - **Spacebar to advance**
