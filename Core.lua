@@ -15,8 +15,11 @@ local defaults = {
     popupRules = {},
     popupButtonSelection = false,
     usePostalOpenAll = true,
-    -- NEW: wheel selection opt-in
+    -- Wheel selection (opt-in)
     scrollWheelSelect = false,
+    -- Popup whitelist mode and master disable
+    popupWhitelistMode = false,          -- only handle popups that match a rule
+    disablePopupInteractions = false,    -- ignore all popups (overrides whitelist/rules)
 }
 
 -- Merge defaults into saved table
@@ -31,14 +34,14 @@ local function DB() return DialogKeyWrathDB end
 DK.DB = DB
 DK.defaults = defaults
 
--- Back-compat passthrough (DK.settings.showNumbers)
+-- Back-compat passthrough (DK.settings.<key>)
 DK.settings = DK.settings or {}
 setmetatable(DK.settings, {
     __index = function(_, key) return DB()[key] end,
     __newindex = function(_, key, val) DB()[key] = val end,
 })
 
--- Trim helper
+-- Trim helper (WotLK compat)
 if not string.trim then
     function string.trim(s) return (s:gsub("^%s*(.-)%s*$", "%1")) end
 end
@@ -67,9 +70,17 @@ DK.popupNumTargets = {}
 DK.numSelectButtons = {}
 DK._popupSelectedButton = nil
 
--- NEW: wheel selection state
+-- Wheel selection state
 DK._scrollSelectedButton = nil
 DK._scrollIndex = nil
+DK._wheelUsed = false   -- becomes true only after actual scroll wheel usage
+
+-- List targeting memory (guards priority across transient UI changes)
+DK._lastBestListTarget = nil
+
+-- NEW: combat-state gating for bindings
+DK._inCombat = false
+DK._pendingEnable = false
 
 -- -----------------------
 -- UI helpers
@@ -77,9 +88,11 @@ DK._scrollIndex = nil
 local function SafeGetFontString(btn)
     if not btn then return nil end
     if btn.GetFontString then return btn:GetFontString() end
-    for i = 1, 12 do
+    for i = 1, 20 do
         local r = select(i, btn:GetRegions())
-        if r and r.GetObjectType and r:GetObjectType() == "FontString" then return r end
+        if r and r.GetObjectType and r:GetObjectType() == "FontString" then
+            return r
+        end
     end
     return nil
 end
@@ -317,9 +330,25 @@ local function NumberQuestButtons()
     end
 end
 
--- Icon classification & best list item
+-- Icon classification & best list item (robust detection + memory)
 local function GetIconPathFromButton(btn)
     if not btn then return nil end
+
+    -- 1) Direct child references commonly used by greeting buttons
+    if btn.Icon and btn.Icon.IsShown and btn.Icon:IsShown() and btn.Icon.GetTexture then
+        local p = btn.Icon:GetTexture()
+        if type(p) == "string" and p ~= "" then return p end
+    end
+    local n = btn.GetName and btn:GetName()
+    if n then
+        local ic = _G[n.."Icon"]
+        if ic and ic.IsShown and ic:IsShown() and ic.GetTexture then
+            local p = ic:GetTexture()
+            if type(p) == "string" and p ~= "" then return p end
+        end
+    end
+
+    -- 2) Normal texture
     if btn.GetNormalTexture then
         local nt = btn:GetNormalTexture()
         if nt and nt.GetTexture then
@@ -327,19 +356,28 @@ local function GetIconPathFromButton(btn)
             if type(p) == "string" and p ~= "" then return p end
         end
     end
-    for i = 1, 12 do
+
+    -- 3) Region scan (wider and more permissive)
+    for i = 1, 20 do
         local r = select(i, btn:GetRegions())
-        if r and r.GetObjectType and r:GetObjectType() == "Texture" and r:IsShown() then
+        if r and r.GetObjectType and r:GetObjectType() == "Texture" and r.IsShown and r:IsShown() then
             local w = (r.GetWidth and r:GetWidth()) or 0
             local h = (r.GetHeight and r:GetHeight()) or 0
-            if w >= 12 and w <= 24 and h >= 12 and h <= 24 then
+            if w >= 8 and w <= 32 and h >= 8 and h <= 32 then
                 if r.GetTexture then
                     local p = r:GetTexture()
-                    if type(p) == "string" and p ~= "" then return p end
+                    if type(p) == "string" and p ~= "" then
+                        local pl = p:lower()
+                        if pl:find("quest", 1, true) or pl:find("icon", 1, true) or pl:find("available", 1, true) or pl:find("active", 1, true) or pl:find("incomplete", 1, true) then
+                            return p
+                        end
+                        return p
+                    end
                 end
             end
         end
     end
+
     return nil
 end
 
@@ -367,38 +405,48 @@ end
 
 local function BestQuestOrGossipButton()
     local best, bestScore, bestIdx
+
+    local function considerList(prefix, max)
+        for i = 1, max do
+            local btn = _G[prefix..i]
+            if btn and btn:IsVisible() and btn:IsEnabled() then
+                local fs = SafeGetFontString(btn)
+                local txt = fs and fs:GetText()
+                if txt and txt ~= "" then
+                    local score = ClassifyQuestIcon(btn) -- 3 (Completed) > 2 (Available) > 1 (In-progress)
+                    if score > 0 and (not best or score > bestScore or (score == bestScore and i < bestIdx)) then
+                        best, bestScore, bestIdx = btn, score, i
+                    end
+                end
+            end
+        end
+    end
+
     if QuestFrameGreetingPanel and QuestFrameGreetingPanel:IsVisible() then
-        for i = 1, 10 do
-            local btn = _G["QuestTitleButton"..i]
-            if btn and btn:IsVisible() and btn:IsEnabled() then
-                local fs = SafeGetFontString(btn)
-                local txt = fs and fs:GetText()
-                if txt and txt ~= "" then
-                    local score = ClassifyQuestIcon(btn)
-                    if score > 0 and (not best or score > bestScore or (score == bestScore and i < bestIdx)) then
-                        best, bestScore, bestIdx = btn, score, i
-                    end
-                end
+        considerList("QuestTitleButton", 10)
+        if not best then
+            -- If icons not yet detected (frame just refreshed), stick to last best if still valid
+            local lb = DK._lastBestListTarget
+            if lb and lb:IsVisible() and lb:IsEnabled() then
+                return lb
             end
+            -- As last resort, top visible
+            best = FirstVisibleListButton("QuestTitleButton", 10)
         end
-        if not best then best = FirstVisibleListButton("QuestTitleButton", 10) end
-    end
-    if (not best) and GossipFrame and GossipFrame:IsVisible() then
-        for i = 1, 32 do
-            local btn = _G["GossipTitleButton"..i]
-            if btn and btn:IsVisible() and btn:IsEnabled() then
-                local fs = SafeGetFontString(btn)
-                local txt = fs and fs:GetText()
-                if txt and txt ~= "" then
-                    local score = ClassifyQuestIcon(btn)
-                    if score > 0 and (not best or score > bestScore or (score == bestScore and i < bestIdx)) then
-                        best, bestScore, bestIdx = btn, score, i
-                    end
-                end
+    elseif GossipFrame and GossipFrame:IsVisible() then
+        considerList("GossipTitleButton", 32)
+        if not best then
+            local lb = DK._lastBestListTarget
+            if lb and lb:IsVisible() and lb:IsEnabled() then
+                return lb
             end
+            best = FirstVisibleListButton("GossipTitleButton", 32)
         end
-        if not best then best = FirstVisibleListButton("GossipTitleButton", 32) end
     end
+
+    -- Remember for stability across transient UI changes (e.g., after popups)
+    if best then DK._lastBestListTarget = best end
+
     return best
 end
 
@@ -463,12 +511,11 @@ local function AddPopupRule(matchBy, pattern, action)
     matchBy = tostring(matchBy)
     if matchBy ~= "text" and matchBy ~= "frame" then return false, "matchBy must be 'text' or 'frame'" end
     action = tonumber(action) or 0
-    if action < 0 or action > 2 then action = 0 end
+    if action < 0 or action > 4 then action = 0 end
     local rules = DB().popupRules or {}
     table.insert(rules, { matchBy = matchBy, pattern = tostring(pattern), action = action, enabled = true })
     DB().popupRules = rules
     if DK.optionsPanel and DK.optionsPanel.RefreshRulesUI then DK.optionsPanel:RefreshRulesUI() end
-    DEFAULT_CHAT_FRAME:AddMessage(addonName..": popup rule added")
     return true
 end
 
@@ -551,7 +598,7 @@ local function FindPopupRuleForFrame(sp)
                     if (lowerText ~= "" and string.find(lowerText, pat, 1, true)) then return rule end
                     for j = 1, 4 do
                         if lb[j] ~= "" and string.find(lb[j], pat, 1, true) then return rule end
-                    end
+                        end
                 end
             end
         end
@@ -561,12 +608,18 @@ end
 
 -- Whether current visible popup should be number-selectable (and not ignored)
 local function PopupHasNumberSelection()
+    if DB().disablePopupInteractions then return false end
     if not DB().popupButtonSelection then return false end
     for i = 1, 4 do
         local sp = _G["StaticPopup"..i]
         if sp and sp:IsVisible() then
             local rule = FindPopupRuleForFrame(sp)
-            if rule and rule.action == 0 then return false end
+            -- In whitelist mode: require a matching rule with action != 0
+            if DB().popupWhitelistMode then
+                if not rule or rule.action == 0 then return false end
+            else
+                if rule and rule.action == 0 then return false end
+            end
             for j = 1, 4 do
                 local btn = sp["button"..j]
                 if btn and btn:IsShown() and btn:IsEnabled() then return true end
@@ -598,12 +651,18 @@ local function RestoreStaticPopupButtonTexts()
 end
 
 local function NumberStaticPopupButtons()
+    if DB().disablePopupInteractions then return end
     if not DB().popupButtonSelection then return end
     for i = 1, 4 do
         local sp = _G["StaticPopup"..i]
         if sp and sp:IsVisible() then
             local rule = FindPopupRuleForFrame(sp)
-            if rule and rule.action == 0 then return end
+            -- Whitelist: only number if matched and not ignored
+            if DB().popupWhitelistMode then
+                if not rule or rule.action == 0 then return end
+            else
+                if rule and rule.action == 0 then return end
+            end
             for j = 1, 4 do
                 local btn = sp["button"..j]
                 if btn and btn:IsShown() then
@@ -615,7 +674,6 @@ local function NumberStaticPopupButtons()
                             if ok then btn.dkOrigColor = { r,g,b } end
                         end
                         local keyLabel = tostring(j)
-                        if j == 10 then keyLabel = "0" end
                         pcall(fs.SetText, fs, keyLabel..". "..(btn.dkOrigText or ""))
                         if btn.dkOrigColor then pcall(fs.SetTextColor, fs, unpack(btn.dkOrigColor)) end
                     end
@@ -628,9 +686,9 @@ end
 
 -- Intermediary secure buttons for popup number selection
 local function EnsureNumSelectButtons()
-    if DK.numSelectButtons and #DK.numSelectButtons >= 10 then return end
+    if DK.numSelectButtons and #DK.numSelectButtons >= 4 then return end
     DK.numSelectButtons = {}
-    for j = 1, 10 do
+    for j = 1, 4 do
         local name = addonName.."NumSelect"..j
         local btn = CreateFrame("Button", name, UIParent, "SecureActionButtonTemplate")
         btn:SetSize(1,1); btn:Hide()
@@ -671,6 +729,7 @@ local function ClearPopupSelection()
 end
 
 local function BindNumberKeysForPopup()
+    if DB().disablePopupInteractions then return end
     if not DB().popupButtonSelection then return end
     EnsureNumSelectButtons()
     DK.popupNumTargets = {}
@@ -678,20 +737,25 @@ local function BindNumberKeysForPopup()
         local sp = _G["StaticPopup"..i]
         if sp and sp:IsVisible() then
             local rule = FindPopupRuleForFrame(sp)
-            if rule and rule.action == 0 then
+            -- Whitelist gating
+            if DB().popupWhitelistMode and not (rule and rule.action ~= 0) then
                 ClearPopupSelection()
                 return
             end
-            for j = 1, 10 do
+            if (not DB().popupWhitelistMode) and rule and rule.action == 0 then
+                ClearPopupSelection()
+                return
+            end
+            for j = 1, 4 do
                 local btn = sp["button"..j]
                 if btn and btn:IsShown() and btn:IsEnabled() and btn.GetName then
-                    local key = (j < 10) and tostring(j) or "0"
+                    local key = tostring(j) -- 1..4
                     DK.popupNumTargets[j] = btn
                     local numBtn = DK.numSelectButtons[j]
                     if numBtn and numBtn:GetName() then
                         SetOverrideBindingClick(handler, false, key, numBtn:GetName())
                         if DB().allowNumPadKeys then
-                            local nk = (key == "0") and "NUMPAD0" or ("NUMPAD"..key)
+                            local nk = "NUMPAD"..key
                             SetOverrideBindingClick(handler, false, nk, numBtn:GetName())
                         end
                     end
@@ -721,7 +785,7 @@ local function IsMailboxActive()
     return DB().usePostalOpenAll and InboxFrame and InboxFrame:IsVisible() and PostalOpenAllButton and HasUnreadMail()
 end
 
--- NEW: utility helpers for scroll-wheel selection
+-- Utility helpers for scroll-wheel selection
 local function AnyStaticPopupVisible()
     for i = 1, 4 do
         local sp = _G["StaticPopup"..i]
@@ -765,6 +829,8 @@ local function WheelSelect(delta)
     if AnyStaticPopupVisible() then return end
     if not ((GossipFrame and GossipFrame:IsVisible()) or (QuestFrameGreetingPanel and QuestFrameGreetingPanel:IsVisible())) then return end
 
+    DK._wheelUsed = true
+
     local list = BuildVisibleList()
     local n = #list
     if n == 0 then return end
@@ -777,7 +843,7 @@ local function WheelSelect(delta)
         for i, b in ipairs(list) do if b == current then idx = i break end end
     end
 
-    -- delta < 0 = scroll down (next item), delta > 0 = up (previous item)
+    -- delta < 0 = next, delta > 0 = previous
     if delta < 0 then idx = math.min(n, idx + 1) else idx = math.max(1, idx - 1) end
 
     DK._scrollIndex = idx
@@ -798,20 +864,23 @@ local function HookWheelTargets()
     end
 end
 
+local DetermineSpaceTarget
+local UpdateWheelOverrideBinding
+
 -- Public API to toggle wheel selection (called by GUI)
 function DK.SetScrollWheelSelectEnabled(enabled)
     DB().scrollWheelSelect = enabled and true or false
     if not DB().scrollWheelSelect then
         DK._scrollSelectedButton = nil
         DK._scrollIndex = nil
+        DK._wheelUsed = false
     end
     HookWheelTargets()
-    -- NEW: evaluate current target and update wheel binding now
     local tgt = select(1, DetermineSpaceTarget())
     UpdateWheelOverrideBinding(tgt)
 end
 
--- NEW: hidden buttons + override binding for global mouse wheel (cursor-independent)
+-- Hidden buttons + override binding for global mouse wheel
 local wheelUpBtn, wheelDownBtn
 local function EnsureWheelButtons()
     if wheelUpBtn and wheelDownBtn then return end
@@ -821,14 +890,12 @@ local function EnsureWheelButtons()
     wheelDownBtn:SetScript("OnClick", function() WheelSelect(-1) end)   -- down = next
 end
 
-local function UpdateWheelOverrideBinding(currentSpaceTarget)
-    -- If feature is disabled, ensure wheel is unbound
+function UpdateWheelOverrideBinding(currentSpaceTarget)
     if not DB().scrollWheelSelect then
         SetOverrideBinding(handler, false, "MOUSEWHEELUP", "")
         SetOverrideBinding(handler, false, "MOUSEWHEELDOWN", "")
         return
     end
-    -- Bind only when a list is visible, a Space target exists, and no popup is visible
     local onList = (GossipFrame and GossipFrame:IsVisible()) or (QuestFrameGreetingPanel and QuestFrameGreetingPanel:IsVisible())
     if currentSpaceTarget and onList and not AnyStaticPopupVisible() then
         EnsureWheelButtons()
@@ -840,12 +907,76 @@ local function UpdateWheelOverrideBinding(currentSpaceTarget)
     end
 end
 
--- Determine SPACE target (respects popup rules and popupButtonSelection)
-local function DetermineSpaceTarget()
+-- Heartbeat to sanitize stray highlights on StaticPopups
+local function Heartbeat()
+    for i = 1, 4 do
+        local sp = _G["StaticPopup"..i]
+        if sp and sp:IsVisible() then
+            for j = 1, 4 do
+                local btn = sp["button"..j]
+                if btn then
+                    local hovered = btn.IsMouseOver and btn:IsMouseOver()
+                    local manual = manualHighlights[btn]
+                    local isTarget = (btn == spaceHighlight)
+                    local isSelected = (btn == DK._popupSelectedButton)
+                    if not (hovered or manual or isTarget or isSelected) then
+                        if btn.dkSelFrame then btn.dkSelFrame:Hide() end
+                        RemoveHighlight(btn)
+                    else
+                        if isSelected then ShowSelectionOverlay(btn) end
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- NEW: helper to decide if any dialog/mail UI that we care about is visible
+local function AnyDialogVisible()
+    return (GossipFrame and GossipFrame:IsVisible()) or
+           (QuestFrame and QuestFrame:IsVisible()) or
+           (QuestFrameGreetingPanel and QuestFrameGreetingPanel:IsVisible()) or
+           (QuestFrameRewardPanel and QuestFrameRewardPanel:IsVisible()) or
+           (StaticPopup1 and StaticPopup1:IsVisible()) or
+           IsMailboxActive()
+end
+
+-- NEW: force-release all overrides immediately (safe in combat)
+local function ForceReleaseOverrides()
+    -- Stop background loop
+    DK:SetScript("OnUpdate", nil)
+    DK._anyVisibleTimer, DK._lastUpdate = nil, 0
+
+    -- Clear key overrides
+    ClearOverrideBindings(handler)
+    SetOverrideBinding(handler, false, "MOUSEWHEELUP", "")
+    SetOverrideBinding(handler, false, "MOUSEWHEELDOWN", "")
+    SetOverrideBinding(handler, false, "SPACE", "")
+
+    -- Reset selection/highlights and wheel state
+    ClearSpaceHighlight()
+    ClearStaticPopupHighlights()
+    manualHighlights = {}
+    DK._scrollSelectedButton = nil
+    DK._scrollIndex = nil
+    DK._wheelUsed = false
+    DK._popupSelectedButton = nil
+    DK.popupNumTargets = {}
+
+    overridesActive = false
+end
+
+-- Determine SPACE target (respects popup rules and popupButtonSelection + whitelist/disable)
+function DetermineSpaceTarget()
     local ignoredPopupFound = false
 
-    -- NEW: honor scroll-wheel selection on dialog lists if enabled and no popup is up
-    if DB().scrollWheelSelect and not AnyStaticPopupVisible() and DK._scrollSelectedButton and DK._scrollSelectedButton:IsVisible() then
+    -- If in combat, never set overrides; release and bail
+    if DK._inCombat then
+        return nil, true
+    end
+
+    -- Wheel selection only after the user actually scrolls
+    if DB().scrollWheelSelect and DK._wheelUsed and not AnyStaticPopupVisible() and DK._scrollSelectedButton and DK._scrollSelectedButton:IsVisible() then
         if (GossipFrame and GossipFrame:IsVisible()) or (QuestFrameGreetingPanel and QuestFrameGreetingPanel:IsVisible()) then
             return DK._scrollSelectedButton, false
         end
@@ -855,25 +986,44 @@ local function DetermineSpaceTarget()
         return DK._popupSelectedButton, false
     end
 
-    for i = 1, 4 do
-        local sp = _G["StaticPopup"..i]
-        if sp and sp:IsVisible() then
-            local rule = FindPopupRuleForFrame(sp)
-            if rule then
-                if rule.action == 0 then
-                    ignoredPopupFound = true
-                elseif rule.action == 2 then
-                    if sp.button2 and sp.button2:IsEnabled() then return sp.button2, false end
+    -- Popup handling (respects disable + whitelist)
+    if not DB().disablePopupInteractions then
+        for i = 1, 4 do
+            local sp = _G["StaticPopup"..i]
+            if sp and sp:IsVisible() then
+                local rule = FindPopupRuleForFrame(sp)
+                if DB().popupWhitelistMode then
+                    -- Whitelist: only interact if a rule exists and is not action 0
+                    if not rule or rule.action == 0 then
+                        ignoredPopupFound = true
+                    else
+                        local desired = sp["button"..tostring(rule.action)]
+                        if desired and desired:IsEnabled() then return desired, false end
+                    end
                 else
-                    if sp.button1 and sp.button1:IsEnabled() then return sp.button1, false end
-                end
-            else
-                if DB().popupButtonSelection and PopupHasNumberSelection() then
-                    return nil, false
-                else
-                    if sp.button1 and sp.button1:IsEnabled() then return sp.button1, false end
+                    -- Normal mode (legacy): rule 0 ignores, else fall back to default behavior
+                    if rule then
+                        if rule.action == 0 then
+                            ignoredPopupFound = true
+                        else
+                            local desired = sp["button"..tostring(rule.action)]
+                            if desired and desired:IsEnabled() then return desired, false end
+                        end
+                    else
+                        if DB().popupButtonSelection and PopupHasNumberSelection() then
+                            return nil, false
+                        else
+                            if sp.button1 and sp.button1:IsEnabled() then return sp.button1, false end
+                        end
+                    end
                 end
             end
+        end
+    else
+        -- When fully disabled, treat any visible popup as ignored for SPACE
+        for i = 1, 4 do
+            local sp = _G["StaticPopup"..i]
+            if sp and sp:IsVisible() then ignoredPopupFound = true break end
         end
     end
 
@@ -893,6 +1043,7 @@ local function DetermineSpaceTarget()
         end
     end
 
+    -- Lists: Completed (3) > Available (2) > In-progress (1), with memory fallback
     local best = BestQuestOrGossipButton()
     if best then return best, false end
 
@@ -900,15 +1051,23 @@ local function DetermineSpaceTarget()
 end
 
 local function IsAwaitingPopupNumberSelection()
-    return DB().popupButtonSelection and PopupHasNumberSelection() and not DK._popupSelectedButton
+    return DB().popupButtonSelection and (not DB().disablePopupInteractions) and PopupHasNumberSelection() and not DK._popupSelectedButton
 end
 
 local function UpdateSpaceHighlightAndBinding()
+    -- Hard-guard in combat: ensure SPACE is unbound, do not rebind
+    if DK._inCombat then
+        ClearStaticPopupHighlights()
+        ClearSpaceHighlight()
+        SetOverrideBinding(handler, false, "SPACE", "")
+        UpdateWheelOverrideBinding(nil)
+        return nil
+    end
+
     if IsAwaitingPopupNumberSelection() then
         ClearStaticPopupHighlights()
         ClearSpaceHighlight()
         SetOverrideBinding(handler, false, "SPACE", "")
-        -- NEW: unbind wheel while awaiting popup number selection
         UpdateWheelOverrideBinding(nil)
         return nil
     end
@@ -931,7 +1090,6 @@ local function UpdateSpaceHighlightAndBinding()
         end
     end
 
-    -- NEW: keep wheel override bindings in sync with the current SPACE target
     UpdateWheelOverrideBinding(target)
 
     return target
@@ -986,14 +1144,26 @@ local function NumberEverythingVisible()
     if GossipFrame and GossipFrame:IsVisible() then NumberGossipButtons() end
     if QuestFrameGreetingPanel and QuestFrameGreetingPanel:IsVisible() then NumberQuestButtons() end
     if QuestFrameRewardPanel and QuestFrameRewardPanel:IsVisible() then NumberRewardButtons() end
+    NumberStaticPopupButtons()
 end
 
 local ONUPDATE_INTERVAL = 0.05
 local function EnableOverrides()
+    -- Never set or refresh overrides while in combat; defer until safe
+    if DK._inCombat then
+        DK._pendingEnable = true
+        -- Ensure everything is released right now
+        ForceReleaseOverrides()
+        return
+    end
+
     if overridesActive then
         HookWheelTargets()
-        local tgt = UpdateSpaceHighlightAndBinding()  -- capture target
-        UpdateWheelOverrideBinding(tgt)               -- NEW
+        local tgt = UpdateSpaceHighlightAndBinding()
+        NumberStaticPopupButtons()
+        BindNumberKeysForPopup()
+        UpdateWheelOverrideBinding(tgt)
+        Heartbeat()
         return
     end
     overridesActive = true
@@ -1013,9 +1183,10 @@ local function EnableOverrides()
     end
 
     HookWheelTargets()
-    local tgt = UpdateSpaceHighlightAndBinding()     -- capture target
-    UpdateWheelOverrideBinding(tgt)                  -- NEW
+    local tgt = UpdateSpaceHighlightAndBinding()
+    UpdateWheelOverrideBinding(tgt)
     NumberEverythingVisible()
+    Heartbeat()
 
     if not DK._anyVisibleTimer then
         DK._lastUpdate = 0
@@ -1025,15 +1196,9 @@ local function EnableOverrides()
             if self._lastUpdate < ONUPDATE_INTERVAL then return end
             self._lastUpdate = 0
 
-            local anyVisible =
-                (GossipFrame and GossipFrame:IsVisible()) or
-                (QuestFrame and QuestFrame:IsVisible()) or
-                (QuestFrameGreetingPanel and QuestFrameGreetingPanel:IsVisible()) or
-                (QuestFrameRewardPanel and QuestFrameRewardPanel:IsVisible()) or
-                (StaticPopup1 and StaticPopup1:IsVisible()) or
-                IsMailboxActive()
+            local anyVisible = AnyDialogVisible()
 
-            if anyVisible then
+            if anyVisible and not DK._inCombat then
                 if DB().popupButtonSelection then
                     if DK._popupSelectedButton then
                         if DK._popupSelectedButton:IsVisible() and DK._popupSelectedButton:IsEnabled() then
@@ -1049,8 +1214,9 @@ local function EnableOverrides()
                     end
                 end
 
-                local tgt2 = UpdateSpaceHighlightAndBinding()  -- capture target
-                UpdateWheelOverrideBinding(tgt2)               -- NEW
+                local tgt2 = UpdateSpaceHighlightAndBinding()
+                UpdateWheelOverrideBinding(tgt2)
+                Heartbeat()
             else
                 DK:SetScript("OnUpdate", nil)
                 DK._anyVisibleTimer, DK._lastUpdate = nil, 0
@@ -1066,11 +1232,11 @@ local function DisableOverrides()
     if not overridesActive then return end
     overridesActive = false
     ClearOverrideBindings(handler)
-    -- NEW: explicit unbind for wheel (safety)
     SetOverrideBinding(handler, false, "MOUSEWHEELUP", "")
     SetOverrideBinding(handler, false, "MOUSEWHEELDOWN", "")
     DK._scrollSelectedButton = nil
     DK._scrollIndex = nil
+    DK._wheelUsed = false
 
     ClearSpaceHighlight()
     manualHighlights = {}
@@ -1095,11 +1261,8 @@ for i = 1, 4 do
         end)
         sp:HookScript("OnHide", function()
             ClearPopupSelection()
-            if (GossipFrame and GossipFrame:IsVisible()) or
-               (QuestFrame and QuestFrame:IsVisible()) or
-               (QuestFrameGreetingPanel and QuestFrameGreetingPanel:IsVisible()) or
-               (QuestFrameRewardPanel and QuestFrameRewardPanel:IsVisible()) or
-               IsMailboxActive() then
+            -- Do NOT clear last-best; it helps keep priority stable when returning to lists
+            if AnyDialogVisible() then
                 EnableOverrides()
             else
                 DisableOverrides()
@@ -1108,7 +1271,7 @@ for i = 1, 4 do
     end
 end
 
--- Mailbox hooks (respect usePostalOpenAll and unread)
+-- Mailbox hooks
 if InboxFrame then
     InboxFrame:HookScript("OnShow", function()
         if IsMailboxActive() then
@@ -1129,14 +1292,29 @@ end
 -- SavedVariables lifecycle sanity
 DK:RegisterEvent("ADDON_LOADED")
 DK:RegisterEvent("PLAYER_LOGOUT")
+-- NEW: react to combat to release bindings ASAP
+DK:RegisterEvent("PLAYER_REGEN_DISABLED")
+DK:RegisterEvent("PLAYER_REGEN_ENABLED")
+
 DK:SetScript("OnEvent", function(_, event, arg1)
     if event == "ADDON_LOADED" and arg1 == addonName then
         for k, v in pairs(defaults) do if DB()[k] == nil then DB()[k] = v end end
         if type(DB().popupRules) ~= "table" then DB().popupRules = {} end
-        -- Apply wheel setting on load
         DK.SetScrollWheelSelectEnabled(DB().scrollWheelSelect)
     elseif event == "PLAYER_LOGOUT" then
         DB().__lastSaved = time()
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        -- Entering combat: drop all overrides immediately
+        DK._inCombat = true
+        DK._pendingEnable = AnyDialogVisible() or DK._pendingEnable
+        ForceReleaseOverrides()
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        DK._inCombat = false
+        -- Re-enable if something relevant is still open or we had a deferred enable
+        if AnyDialogVisible() or DK._pendingEnable then
+            DK._pendingEnable = false
+            EnableOverrides()
+        end
     end
 end)
 
@@ -1167,17 +1345,22 @@ eventFrame:RegisterEvent("MAIL_CLOSED")
 eventFrame:SetScript("OnEvent", function(self, event, ...)
     if event == "GOSSIP_SHOW" then
         NumberGossipButtons()
-        -- reset wheel index to align to current best when dialog opens
         DK._scrollSelectedButton, DK._scrollIndex = nil, nil
+        DK._wheelUsed = false
+        DK._lastBestListTarget = nil
         EnableOverrides()
     elseif event == "QUEST_GREETING" then
         NumberQuestButtons()
         DK._scrollSelectedButton, DK._scrollIndex = nil, nil
+        DK._wheelUsed = false
+        DK._lastBestListTarget = nil
         EnableOverrides()
     elseif event == "QUEST_COMPLETE" then
         EnableOverrides()
     elseif event == "GOSSIP_CLOSED" or event == "QUEST_FINISHED" or event == "QUEST_CLOSED" then
         DK._scrollSelectedButton, DK._scrollIndex = nil, nil
+        DK._wheelUsed = false
+        DK._lastBestListTarget = nil
         DisableOverrides()
     elseif event == "QUEST_DETAIL" or event == "QUEST_PROGRESS" then
         EnableOverrides()
@@ -1225,9 +1408,9 @@ SlashCmdList["DKW"] = function()
 end
 
 -- Debug helpers
-SLASH_DKDBG1 = "/dkdbg"
+SLASH_DKDBG1 = "/dkw debug"
 SlashCmdList["DKDBG"] = function()
     local db = DB()
-    DEFAULT_CHAT_FRAME:AddMessage(string.format("%s settings: detectElvUI=%s allowNumPadKeys=%s showNumbers=%s popupButtonSelection=%s usePostalOpenAll=%s scrollWheelSelect=%s rules=%d",
-        addonName, tostring(db.detectElvUI), tostring(db.allowNumPadKeys), tostring(db.showNumbers), tostring(db.popupButtonSelection), tostring(db.usePostalOpenAll), tostring(db.scrollWheelSelect), #(db.popupRules or {})))
+    DEFAULT_CHAT_FRAME:AddMessage(string.format("%s settings: detectElvUI=%s allowNumPadKeys=%s showNumbers=%s popupButtonSelection=%s usePostalOpenAll=%s scrollWheelSelect=%s whitelist=%s disablePopups=%s rules=%d",
+        addonName, tostring(db.detectElvUI), tostring(db.allowNumPadKeys), tostring(db.showNumbers), tostring(db.popupButtonSelection), tostring(db.usePostalOpenAll), tostring(db.scrollWheelSelect), tostring(db.popupWhitelistMode), tostring(db.disablePopupInteractions), #(db.popupRules or {})))
 end
