@@ -2,9 +2,10 @@
 ## Title: DialogKeyWrath
 ## Notes: Keyboard controls for dialogs (1-10 selection, Space to accept)
 ## Author: ZythDr
-## Version: 1.0.5
+## Version: 1.0.6
 ## SavedVariables: DialogKeyWrathDB
 
 Core.lua
 GUI.lua
+
 Rules.lua
