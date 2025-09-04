@@ -7,5 +7,4 @@
 
 Core.lua
 GUI.lua
-
 Rules.lua
