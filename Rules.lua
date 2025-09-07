@@ -29,11 +29,12 @@ local function PreconfigureDefaultRules()
     end
 
     -- Two defaults:
-    -- - "Disabled Addons": match popup text containing "Disable AddOns" -> Action2 (Button2)
+    -- - "Disabled Addons": match popup text containing "Disable AddOns" -> Action2 (Button2 on this frame = Cancel button)
     -- - "Destroy Items": match popup text containing "Do you want to destroy" -> Action0 (Ignore)
     local defaultsToAdd = {
-        { name = "Disabled Addons", matchBy = "text", pattern = "Disable AddOns", action = 2, enabled = true },
+        { name = "Disable Addons", matchBy = "text", pattern = "Disable AddOns", action = 2, enabled = true },
         { name = "Destroy Items",   matchBy = "text", pattern = "Do you want to destroy", action = 0, enabled = true },
+        { name = "Destroy Quest Items",   matchBy = "text", pattern = "needed for the quest", action = 0, enabled = true },
     }
 
     -- Build a set of existing rule names (normalized) to avoid duplicates
