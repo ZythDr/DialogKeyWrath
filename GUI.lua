@@ -304,7 +304,7 @@ do
     Tooltipify(rewardsTooltipCheck, "Quest Rewards Tooltip", "When completing a quest, pressing 1..0 to select a reward will also show that item's tooltip.\nPressing the same number again will hide the tooltip.")
 
     -- NEW: Compare tooltips (child)
-    local rewardsCompareCheck = CreateNamedCheckbox(addonName.."RewardsCompareCheck", generalPanel, "Also show comparison tooltips")
+    local rewardsCompareCheck = CreateNamedCheckbox(addonName.."RewardsCompareCheck", generalPanel, "Also show comparison tooltips (WIP - NOT WORKING ATM)")
     rewardsCompareCheck:SetPoint("TOPLEFT", rewardsTooltipCheck, "BOTTOMLEFT", 20, -ROWGAP)
     Tooltipify(rewardsCompareCheck, "Comparison Tooltips", "Also show side-by-side comparison tooltips (as if Shift is held). Requires 'Quest Rewards Tooltip' to be enabled.")
 
