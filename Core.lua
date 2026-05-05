@@ -846,8 +846,6 @@ local function EnableOverrides()
     -- Never set or refresh overrides while in combat; defer until safe
     if DK._inCombat then
         DK._pendingEnable = true
-        -- Ensure everything is released right now
-        ForceReleaseOverrides()
         return
     end
 
@@ -957,13 +955,17 @@ for i = 1, 4 do
         sp:HookScript("OnShow", function()
             ClearPopupSelection()
             if DB().popupButtonSelection then SetOverrideBinding(handler, false, "SPACE", "") end
-            EnableOverrides()
+            if not DK._inCombat then
+                EnableOverrides()
+            end
         end)
         sp:HookScript("OnHide", function()
             ClearPopupSelection()
             -- Do NOT clear last-best; it helps keep priority stable when returning to lists
             if AnyDialogVisible() then
-                EnableOverrides()
+                if not DK._inCombat then
+                    EnableOverrides()
+                end
             else
                 DisableOverrides()
             end
